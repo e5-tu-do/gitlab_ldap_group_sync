@@ -1,0 +1,16 @@
+LDAP_URI=ldap://ldap.physik.tu-dortmund.de
+LDAP_STARTTLS=true
+# leave unset for anonymous bind
+# LDAP_BIND_DN=
+# LDAP_BIND_PW=
+LDAP_GROUP_BASE="ou=groups,dc=physik,dc=tu-dortmund,dc=de"
+LDAP_USER_BASE="ou=people,dc=physik,dc=tu-dortmund,dc=de"
+
+# set if you want to filter allowed users / groups respectively
+# LDAP_USER_FILTER=""
+# LDAP_GROUP_FILTER=""
+
+
+# GITLAB AUTH
+GITLAB_TOKEN=
+GITLAB_URL=https://git.e5.physik.tu-dortmund.de
