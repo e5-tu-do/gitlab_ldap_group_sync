@@ -5,14 +5,16 @@ from dotenv import load_dotenv
 import ldap
 import logging
 from collections import namedtuple
-import sys
 
 
-MOCK = not os.getenv('GITLAB_SYNC', False)
-if not MOCK:
-    # must be mock at the moment
-    sys.exit(1)
+def getenvbool(key, default=False):
+    val = os.getenv(key)
+    if val is None:
+        return default
+    return val.lower() in {'yes', 'true', 'on'}
 
+
+MOCK = not getenvbool('DO_GITLAB_SYNC', False)
 LDAPGroup = namedtuple('LDAPGroup', 'dn cn members parent subgroups')
 LDAPUser = namedtuple('LDAPUser', 'dn uid mail publickeys')
 ACCESS = gitlab.DEVELOPER_ACCESS
@@ -45,13 +47,6 @@ class Mock:
 
     def __repr__(self):
         return f'Mock({self.args}, {self.kwargs})'
-
-
-def getenvbool(key, default=False):
-    val = os.getenv(key)
-    if val is None:
-        return default
-    return val.lower() in {'yes', 'true', 'on'}
 
 
 def ldap_connect():
