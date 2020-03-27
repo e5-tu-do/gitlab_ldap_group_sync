@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 import ldap
 import logging
-from collections import namedtuple, defaultdict
+from collections import namedtuple
 import sys
 
 
@@ -14,7 +14,7 @@ if not MOCK:
     sys.exit(1)
 
 LDAPGroup = namedtuple('LDAPGroup', 'dn cn members parent')
-LDAPUser = namedtuple('LDAPUser', 'dn uid mail')
+LDAPUser = namedtuple('LDAPUser', 'dn uid mail publickeys')
 ACCESS = gitlab.DEVELOPER_ACCESS
 
 
@@ -125,7 +125,7 @@ def get_ldap_users(ldap_conn):
         log.info(f'Using user filter {user_filter}')
 
     result = ldap_conn.search_s(
-        base, ldap.SCOPE_SUBTREE, user_filter, ['dn', 'uid', 'mail']
+        base, ldap.SCOPE_SUBTREE, user_filter, ['dn', 'uid', 'mail', 'sshPublicKey']
     )
     log.info(f'Found {len(result)} ldap users')
 
@@ -134,6 +134,8 @@ def get_ldap_users(ldap_conn):
             dn=dn,
             uid=u['uid'][0].decode('utf-8'),
             mail=u['mail'][0].decode('utf-8'),
+            # publickeys can be multiple ldap entries and multiple keys in a single entry
+            publickeys=[keys.split(b'\n') for keys in u.get('sshPublicKey', [])]
         )
         for dn, u in result
         if all([u.get('mail'), u.get('uid')])
