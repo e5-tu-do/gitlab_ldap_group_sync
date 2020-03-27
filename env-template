@@ -11,6 +11,11 @@ LDAP_USER_BASE="ou=people,dc=physik,dc=tu-dortmund,dc=de"
 # LDAP_GROUP_FILTER=""
 
 
+# set if you want to use subgroups following the hierarchy of the ldap groups
+# WARNING: as of gitlab 12.9 all members of parent groups are members of child groups
+# this is probably not what you want if you use ldap group trees.
+# CREATE_SUBGROUPS=
+
 # GITLAB AUTH
 GITLAB_TOKEN=
 GITLAB_URL=https://git.e5.physik.tu-dortmund.de

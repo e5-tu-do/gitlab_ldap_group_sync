@@ -47,9 +47,16 @@ class Mock:
         return f'Mock({self.args}, {self.kwargs})'
 
 
+def getenvbool(key, default=False):
+    val = os.getenv(key)
+    if val is None:
+        return default
+    return val.lower() in {'yes', 'true', 'on'}
+
+
 def ldap_connect():
     conn = ldap.initialize(os.environ['LDAP_URI'])
-    if os.getenv('LDAP_STARTTLS').lower() in {'yes', 'true', 'on'}:
+    if getenvbool('LDAP_STARTTLS'):
         conn.start_tls_s()
 
     conn.simple_bind_s(os.getenv('LDAP_BIND_DN'), os.getenv('LDAP_BIND_PW'))
@@ -171,22 +178,23 @@ def get_ldap_users(ldap_conn):
 
 
 def create_group(gl, name, parent=None):
+    create_subgroup = parent is not None and getenvbool('CREATE_SUBGROUPS')
     log.info(
         f'Creating gitlab group {name}'
-        + (f' as subgroup of {parent.cn}' if parent is not None else '')
+        + (f' as subgroup of {parent.cn}' if create_subgroup else '')
     )
     new_group = {'name': name, 'path': name}
     if MOCK:
         return Mock(**new_group)
     else:
-        if parent is not None:
+        if create_subgroup:
             gl_parent = gl.groups.get(parent.cn)
             new_group['parent_id'] = gl_parent
         return gl.groups.create(new_group)
 
 
 def add_member(group, user, access_level):
-    log.info(f'Adding {user.username} with id {user.id} to group {group.name}')
+    log.debug(f'Adding {user.username} with id {user.id} to group {group.name}')
     if not MOCK:
         group.members.create(dict(user_id=user.id, access_level=access_level))
 
@@ -217,11 +225,11 @@ def get_or_create_group(gl, ldap_group, parent=None):
 def sync_ldap_group(gl, ldap_group, ldap_users, gl_users, parent=None):
     gl_group, new = get_or_create_group(gl, ldap_group, parent=parent)
     if len(ldap_group.members) == 0 and new:
-        log.info(f'Skipping group {ldap_group.cn} because its empty')
+        log.debug(f'Skipping group {ldap_group.cn} because its empty')
         return
     else:
         log.info(f'Syncing LDAP group {ldap_group.dn}')
-        if parent is not None:
+        if parent is not None and getenvbool('CREATE_SUBGROUPS'):
             log.info(f'Group is subgroup of {parent.cn}')
 
     if new:
@@ -236,7 +244,7 @@ def sync_ldap_group(gl, ldap_group, ldap_users, gl_users, parent=None):
     for username in to_add:
         user = gl_users.get(username)
         if user is None:
-            log.info(f'Skipping {username} because he/she never logged into gitlab')
+            log.debug(f'Skipping {username} because he/she never logged into gitlab')
             continue
         add_member(gl_group, user, ACCESS)
 
