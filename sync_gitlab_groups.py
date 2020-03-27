@@ -13,7 +13,7 @@ if not MOCK:
     # must be mock at the moment
     sys.exit(1)
 
-LDAPGroup = namedtuple('LDAPGroup', 'dn cn members parent')
+LDAPGroup = namedtuple('LDAPGroup', 'dn cn members parent subgroups')
 LDAPUser = namedtuple('LDAPUser', 'dn uid mail publickeys')
 ACCESS = gitlab.DEVELOPER_ACCESS
 
@@ -57,7 +57,7 @@ def ldap_connect():
     return conn
 
 
-def get_ldap_groups(ldap_conn, min_members=0):
+def get_ldap_groups(ldap_conn):
     '''Get LDAP groups and build a tree of the hierarchy'''
     base = os.environ['LDAP_GROUP_BASE']
     user_base = os.environ['LDAP_USER_BASE']
@@ -76,9 +76,8 @@ def get_ldap_groups(ldap_conn, min_members=0):
     groups = []
 
     for dn, g in result:
-        n_members = len(g.get('member', []))
-        if g.get('cn') is None or n_members < min_members:
-            log.info(f'Group {dn} has no cn or too few members ({n_members})')
+        if g.get('cn') is None:
+            log.info(f'Group {dn} has no cn, skipping')
             continue
 
         cn = g['cn'][0].decode('utf-8')
@@ -87,13 +86,20 @@ def get_ldap_groups(ldap_conn, min_members=0):
             for m in g.get('member', [])
             if user_base in m.decode('utf-8')
         ]
+        subgroups = [
+            m.decode('utf-8')
+            for m in g.get('member', [])
+            if base in m.decode('utf-8') and base != dn
+        ]
         parent = ','.join(dn.split(',')[1:])
         if dn == base:
             parent = None
 
-        groups.append(LDAPGroup(dn=dn, cn=cn, members=members, parent=parent))
+        groups.append(LDAPGroup(
+            dn=dn, cn=cn, members=members, parent=parent, subgroups=subgroups
+        ))
 
-    log.info(f'Found {len(groups)} ldap groups with cn and atleast {min_members} members')
+    log.info(f'Found {len(groups)} ldap groups with cn')
 
     # sort groups by hierarchy level
     groups.sort(key=lambda g: 0 if g.parent is None else len(g.parent.split(',')))
@@ -112,7 +118,26 @@ def get_ldap_groups(ldap_conn, min_members=0):
             group_lookup[group.dn] = g
             group_lookup[group.parent]['children'][group.dn] = g
 
-    return tree
+    for group in group_lookup.values():
+        if group['group'] is not None:
+            add_subgroup_members(group['group'], group_lookup)
+
+    return tree, group_lookup
+
+
+def add_subgroup_members(group, group_lookup):
+    '''recursively add members from subgroups to group members'''
+    new = set()
+    for sub_dn in group.subgroups:
+        if sub_dn in group_lookup:
+            subgroup = group_lookup[sub_dn]['group']
+            add_subgroup_members(subgroup, group_lookup)
+            new |= set(subgroup.members)
+
+    new -= set(group.members)
+    if len(new) > 0:
+        log.info(f'Adding {len(new)} members from subgroups to group {group.cn} ')
+        group.members.extend(new)
 
 
 def get_ldap_users(ldap_conn):
@@ -151,12 +176,12 @@ def create_group(gl, name, parent=None):
         + (f' as subgroup of {parent.cn}' if parent is not None else '')
     )
     new_group = {'name': name, 'path': name}
-    if parent is not None:
-        gl_parent = gl.groups.get(parent.cn)
-        new_group['parent_id'] = gl_parent
     if MOCK:
         return Mock(**new_group)
     else:
+        if parent is not None:
+            gl_parent = gl.groups.get(parent.cn)
+            new_group['parent_id'] = gl_parent
         return gl.groups.create(new_group)
 
 
@@ -214,9 +239,11 @@ def sync_ldap_group(gl, ldap_group, ldap_users, gl_users, parent=None):
 
 def print_group_tree(tree, level=0):
     '''Print a nice tree view of the found ldap groups'''
-    n_members = 0 if tree['group'] is None else len(tree['group'].members)
+    if level == 0:
+        print('NAME MEMBERS SUBGROUPS')
     if tree['group'] is not None:
-        print(' ' * level * 2, tree['group'].cn, n_members)
+        group = tree['group']
+        print(' ' * level * 2, group.cn, len(group.members), len(group.subgroups))
 
     for subtree in tree['children'].values():
         print_group_tree(subtree, level=level+1)
@@ -235,7 +262,7 @@ def sync_group_tree(gl, tree, ldap_users, gl_users, parent=None):
 def main():
     load_dotenv()
     ldap_conn = ldap_connect()
-    ldap_group_tree = get_ldap_groups(ldap_conn)
+    ldap_group_tree, _ = get_ldap_groups(ldap_conn)
     log.info('Build the following group tree (name, n_members):')
     print_group_tree(ldap_group_tree)
     ldap_users = get_ldap_users(ldap_conn)
