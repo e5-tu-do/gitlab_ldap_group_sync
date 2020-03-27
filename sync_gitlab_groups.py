@@ -197,25 +197,32 @@ def remove_member(group, user):
         group.members.delete(dict(member_id=user.id))
 
 
-def get_or_create_group(gl, name, parent=None):
+def get_or_create_group(gl, ldap_group, parent=None):
     '''Query gitlab for group `name`, if not exists create it.
     Returns the group object and if it is new or not.
     '''
     try:
-        group = gl.groups.get(name)
+        group = gl.groups.get(ldap_group.cn)
         return group, False
     except GitlabGetError as e:
         if 'Group Not Found' in str(e):
-            return create_group(gl, name=name, parent=parent), True
+            # do not create empty groups
+            if len(ldap_group.members) > 0:
+                return create_group(gl, name=ldap_group.cn, parent=parent), True
+            else:
+                return None, True
         raise
 
 
 def sync_ldap_group(gl, ldap_group, ldap_users, gl_users, parent=None):
-    log.info(f'Syncing LDAP group {ldap_group.dn}')
-    if parent is not None:
-        log.info(f'Group is subgroup of {parent.cn}')
-
-    gl_group, new = get_or_create_group(gl, ldap_group.cn, parent=parent)
+    gl_group, new = get_or_create_group(gl, ldap_group, parent=parent)
+    if len(ldap_group.members) == 0 and new:
+        log.info(f'Skipping group {ldap_group.cn} because its empty')
+        return
+    else:
+        log.info(f'Syncing LDAP group {ldap_group.dn}')
+        if parent is not None:
+            log.info(f'Group is subgroup of {parent.cn}')
 
     if new:
         gl_members = set()
