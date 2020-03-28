@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import gitlab
-from gitlab.exceptions import GitlabGetError
+from gitlab.exceptions import GitlabGetError, GitlabCreateError, GitlabDeleteError
 import os
 from dotenv import load_dotenv
 import ldap
@@ -191,13 +191,22 @@ def create_group(gl, name, parent=None):
 def add_member(group, user, access_level):
     log.debug(f'Adding {user.username} with id {user.id} to group {group.name}')
     if getenvbool('DO_GITLAB_SYNC', False):
-        group.members.create(dict(user_id=user.id, access_level=access_level))
+        try:
+            group.members.create(dict(user_id=user.id, access_level=access_level))
+        except GitlabCreateError as e:
+            if 'Member already exists' in str(e):
+                log.warning(f'Skipping user {user.name}, is already a member')
+            else:
+                raise
 
 
 def remove_member(group, user):
     log.info(f'Removing {user.username} with id {user.id} from group {group.name}')
     if getenvbool('DO_GITLAB_SYNC', False):
-        group.members.delete(dict(member_id=user.id))
+        try:
+            group.members.delete(dict(member_id=user.id))
+        except GitlabDeleteError as e:
+            log.error(f'Could not remove {user.username} from group {group.name}: {e!s}')
 
 
 def get_or_create_group(gl, ldap_group, parent=None):
