@@ -20,7 +20,7 @@ def getenvbool(key, default=False):
     return val.lower() in {'yes', 'true', 'on'}
 
 
-LDAPGroup = namedtuple('LDAPGroup', 'dn cn members parent subgroups')
+LDAPGroup = namedtuple('LDAPGroup', 'dn cn members parent subgroups description')
 LDAPUser = namedtuple('LDAPUser', 'dn uid mail publickeys')
 ACCESS = gitlab.DEVELOPER_ACCESS
 
@@ -74,7 +74,7 @@ def get_ldap_groups(ldap_conn):
         log.info(f'Using group filter {group_filter}')
 
     result = ldap_conn.search_s(
-        base, ldap.SCOPE_SUBTREE, group_filter, ['cn', 'member']
+        base, ldap.SCOPE_SUBTREE, group_filter, ['cn', 'member', 'description']
     )
 
     log.info(f'Found {len(result)} ldap groups')
@@ -101,8 +101,11 @@ def get_ldap_groups(ldap_conn):
         if dn == base:
             parent = None
 
+        description = g.get('description', [b''])[0].decode('utf-8')
+
         groups.append(LDAPGroup(
-            dn=dn, cn=cn, members=members, parent=parent, subgroups=subgroups
+            dn=dn, cn=cn, members=members, parent=parent, subgroups=subgroups,
+            description=description
         ))
 
     log.info(f'Found {len(groups)} ldap groups with cn')
@@ -180,13 +183,17 @@ def get_ldap_users(ldap_conn):
     return users
 
 
-def create_group(gl, name, parent=None):
+def create_group(gl, ldap_group, parent=None):
     create_subgroup = parent is not None and getenvbool('CREATE_SUBGROUPS')
     log.info(
-        f'Creating gitlab group {name}'
+        f'Creating gitlab group {ldap_group.cn}'
         + (f' as subgroup of {parent.cn}' if create_subgroup else '')
     )
-    new_group = {'name': name, 'path': name}
+    new_group = {
+        'name': ldap_group.cn,
+        'path': ldap_group.cn,
+        'description': ldap_group.description,
+    }
     if not getenvbool('DO_GITLAB_SYNC', False):
         return Mock(**new_group)
     else:
@@ -315,10 +322,12 @@ def main():
             log.info('Build the following group tree (name, n_members):')
             print_group_tree(ldap_group_tree)
             sync_group_tree(gl, ldap_group_tree, ldap_users, gl_users)
-
         else:
             for ldap_group in ldap_groups:
-                sync_ldap_group(gl, ldap_group, ldap_users, gl_users)
+                try:
+                    sync_ldap_group(gl, ldap_group, ldap_users, gl_users)
+                except Exception:
+                    log.exception(f'Error syncing group {ldap_group.dn}')
 
 
 if __name__ == '__main__':
