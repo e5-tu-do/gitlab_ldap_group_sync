@@ -48,7 +48,7 @@ class Mock:
 def is_ldap_user(gl_user):
     '''Tests if a given gitlab user is from the LDAP'''
     return any(
-        ident['provider'] == 'ldap_main'
+        ident['provider'] == 'ldapmain'
         for ident in gl_user.attributes['identities']
     )
 
@@ -210,12 +210,12 @@ def add_member(group, user, access_level):
 
 def remove_member(group, user):
     if not is_ldap_user(user):
-        log.warning('Not removing user {user.username} as is not an LDAP user')
+        log.warning(f'Not removing user {user.username} as is not an LDAP user')
 
     log.info(f'Removing {user.username} with id {user.id} from group {group.name}')
     if getenvbool('DO_GITLAB_SYNC', False):
         try:
-            group.members.delete(dict(member_id=user.id))
+            group.members.delete(user.id)
         except GitlabDeleteError as e:
             log.error(f'Could not remove {user.username} from group {group.name}: {e!s}')
 
