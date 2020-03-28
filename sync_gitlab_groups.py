@@ -238,7 +238,7 @@ def get_or_create_group(gl, ldap_group, parent=None):
         if 'Group Not Found' in str(e):
             # do not create empty groups
             if len(ldap_group.members) > 0:
-                return create_group(gl, name=ldap_group.cn, parent=parent), True
+                return create_group(gl, ldap_group=ldap_group, parent=parent), True
             else:
                 return None, True
         raise
