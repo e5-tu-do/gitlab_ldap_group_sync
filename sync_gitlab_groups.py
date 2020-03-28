@@ -45,6 +45,14 @@ class Mock:
         return f'Mock({self.args}, {self.kwargs})'
 
 
+def is_ldap_user(gl_user):
+    '''Tests if a given gitlab user is from the LDAP'''
+    return any(
+        ident['provider'] == 'ldap_main'
+        for ident in gl_user.attributes['identities']
+    )
+
+
 def ldap_connect():
     conn = ldap.initialize(os.environ['LDAP_URI'])
     if getenvbool('LDAP_STARTTLS'):
@@ -201,6 +209,9 @@ def add_member(group, user, access_level):
 
 
 def remove_member(group, user):
+    if not is_ldap_user(user):
+        log.warning('Not removing user {user.username} as is not an LDAP user')
+
     log.info(f'Removing {user.username} with id {user.id} from group {group.name}')
     if getenvbool('DO_GITLAB_SYNC', False):
         try:
