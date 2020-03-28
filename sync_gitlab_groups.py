@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import gitlab
 from gitlab.exceptions import GitlabGetError
 import os
@@ -8,28 +9,23 @@ from collections import namedtuple
 
 
 def getenvbool(key, default=False):
+    '''Get True of False from an environment variable
+    If the variable is not set, return `default`,
+    if it is set, `yes`, `true` and `on` are matched case insensitive for True,
+    everything else is false
+    '''
     val = os.getenv(key)
     if val is None:
         return default
     return val.lower() in {'yes', 'true', 'on'}
 
 
-MOCK = not getenvbool('DO_GITLAB_SYNC', False)
 LDAPGroup = namedtuple('LDAPGroup', 'dn cn members parent subgroups')
 LDAPUser = namedtuple('LDAPUser', 'dn uid mail publickeys')
 ACCESS = gitlab.DEVELOPER_ACCESS
 
 
 log = logging.getLogger('giblab_ldap_sync')
-log.setLevel(logging.INFO)
-
-handler = logging.StreamHandler()
-handler.setFormatter(logging.Formatter(
-    '%(message)s',
-    datefmt='%Y-%m-%dT%H:%M:%S'
-))
-
-logging.getLogger().addHandler(handler)
 
 
 class Mock:
@@ -102,9 +98,13 @@ def get_ldap_groups(ldap_conn):
         ))
 
     log.info(f'Found {len(groups)} ldap groups with cn')
+    return groups
 
+
+def build_group_tree(groups):
     # sort groups by hierarchy level
     groups.sort(key=lambda g: 0 if g.parent is None else len(g.parent.split(',')))
+    base = os.environ['LDAP_GROUP_BASE']
 
     # build tree
     tree = {'group': None, 'children': {}}
@@ -179,7 +179,7 @@ def create_group(gl, name, parent=None):
         + (f' as subgroup of {parent.cn}' if create_subgroup else '')
     )
     new_group = {'name': name, 'path': name}
-    if MOCK:
+    if not getenvbool('DO_GITLAB_SYNC', False):
         return Mock(**new_group)
     else:
         if create_subgroup:
@@ -190,13 +190,13 @@ def create_group(gl, name, parent=None):
 
 def add_member(group, user, access_level):
     log.debug(f'Adding {user.username} with id {user.id} to group {group.name}')
-    if not MOCK:
+    if getenvbool('DO_GITLAB_SYNC', False):
         group.members.create(dict(user_id=user.id, access_level=access_level))
 
 
 def remove_member(group, user):
     log.info(f'Removing {user.username} with id {user.id} from group {group.name}')
-    if not MOCK:
+    if getenvbool('DO_GITLAB_SYNC', False):
         group.members.delete(dict(member_id=user.id))
 
 
@@ -271,17 +271,34 @@ def sync_group_tree(gl, tree, ldap_users, gl_users, parent=None):
 
 def main():
     load_dotenv()
+    log.setLevel(logging.DEBUG if getenvbool('VERBOSE') else logging.INFO)
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter(
+        '%(message)s',
+        datefmt='%Y-%m-%dT%H:%M:%S'
+    ))
+    logging.getLogger().addHandler(handler)
+
     ldap_conn = ldap_connect()
-    ldap_group_tree, _ = get_ldap_groups(ldap_conn)
-    log.info('Build the following group tree (name, n_members):')
-    print_group_tree(ldap_group_tree)
+    ldap_groups = get_ldap_groups(ldap_conn)
     ldap_users = get_ldap_users(ldap_conn)
     ldap_conn.unbind_s()
 
     with gitlab.Gitlab(os.environ['GITLAB_URL'], os.environ['GITLAB_TOKEN']) as gl:
         gl_users = {u.username: u for u in gl.users.list(as_list=False)}
         log.info(f'Found {len(gl_users)} gitlab users')
-        sync_group_tree(gl, ldap_group_tree, ldap_users, gl_users)
+
+        if getenvbool('CREATE_SUBGROUPS'):
+            ldap_group_tree, _ = build_group_tree(ldap_groups)
+            log.warning('Creating subgroups using group hierarchy from LDAP')
+            log.warning('As of gitlab 12.9, this is probably unwanted')
+            log.info('Build the following group tree (name, n_members):')
+            print_group_tree(ldap_group_tree)
+            sync_group_tree(gl, ldap_group_tree, ldap_users, gl_users)
+
+        else:
+            for ldap_group in ldap_groups:
+                sync_ldap_group(gl, ldap_group, ldap_users, gl_users)
 
 
 if __name__ == '__main__':

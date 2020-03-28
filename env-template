@@ -1,6 +1,13 @@
+# set to true of you want to commit the changes to gitlab
+# Run with false first to check if the result is what you expected
+DO_GITLAB_SYNC=false
+# sets log level to debug informing about individual membership changes
+VERBOSE=true
+
+# LDAP settings
 LDAP_URI=ldap://ldap.physik.tu-dortmund.de
 LDAP_STARTTLS=true
-# leave unset for anonymous bind
+# LDAP login credentials, leave unset for anonymous bind
 # LDAP_BIND_DN=
 # LDAP_BIND_PW=
 LDAP_GROUP_BASE="ou=groups,dc=physik,dc=tu-dortmund,dc=de"
@@ -8,13 +15,17 @@ LDAP_USER_BASE="ou=people,dc=physik,dc=tu-dortmund,dc=de"
 
 # set if you want to filter allowed users / groups respectively
 # LDAP_USER_FILTER=""
+
+# The LDAP group filter should return all groups necessery,
+# e.g. If you use subgroups, this needs to include the parent groups of all groups 
+# you want to sync
 # LDAP_GROUP_FILTER=""
 
 
 # set if you want to use subgroups following the hierarchy of the ldap groups
 # WARNING: as of gitlab 12.9 all members of parent groups are members of child groups
 # this is probably not what you want if you use ldap group trees.
-# CREATE_SUBGROUPS=
+CREATE_SUBGROUPS=false
 
 # GITLAB AUTH
 GITLAB_TOKEN=
