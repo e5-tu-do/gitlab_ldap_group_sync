@@ -7,17 +7,9 @@ import ldap
 import logging
 from collections import namedtuple
 
-
-def getenvbool(key, default=False):
-    '''Get True of False from an environment variable
-    If the variable is not set, return `default`,
-    if it is set, `yes`, `true` and `on` are matched case insensitive for True,
-    everything else is false
-    '''
-    val = os.getenv(key)
-    if val is None:
-        return default
-    return val.lower() in {'yes', 'true', 'on'}
+from .ldap_connection import ldap_connect
+from .utils import getenvbool
+from .mock import Mock
 
 
 LDAPGroup = namedtuple('LDAPGroup', 'dn cn members parent subgroups description')
@@ -28,39 +20,12 @@ ACCESS = gitlab.DEVELOPER_ACCESS
 log = logging.getLogger('giblab_ldap_sync')
 
 
-class Mock:
-    def __init__(self, *args, **kwargs):
-        self.args = args
-        self.kwargs = kwargs
-
-    def __getattr__(self, name):
-        if name in self.kwargs:
-            return self.kwargs[name]
-        return Mock()
-
-    def __call__(self, *args, **kwargs):
-        return Mock()
-
-    def __repr__(self):
-        return f'Mock({self.args}, {self.kwargs})'
-
-
 def is_ldap_user(gl_user):
     '''Tests if a given gitlab user is from the LDAP'''
     return any(
         ident['provider'] == 'ldapmain'
         for ident in gl_user.attributes['identities']
     )
-
-
-def ldap_connect():
-    conn = ldap.initialize(os.environ['LDAP_URI'])
-    if getenvbool('LDAP_STARTTLS'):
-        conn.start_tls_s()
-
-    conn.simple_bind_s(os.getenv('LDAP_BIND_DN'), os.getenv('LDAP_BIND_PW'))
-
-    return conn
 
 
 def get_ldap_groups(ldap_conn):
